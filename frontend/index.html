@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ISR-GAN 图像超分辨率重建</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: rgba(255, 255, 255, 0.06);
+      --border: rgba(255, 255, 255, 0.12);
+      --text: #eef2ff;
+      --muted: #9ca3af;
+      --primary: #6d5dfc;
+      --primary-hover: #5b4bf0;
+      --success: #22c55e;
+      --error: #ef4444;
+      --warn: #f59e0b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 8%, rgba(109, 93, 252, 0.32), transparent 34%),
+        radial-gradient(circle at 88% 92%, rgba(34, 197, 94, 0.18), transparent 32%),
+        var(--bg);
+    }
+
+    .app {
+      width: min(1200px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 40px 0 64px;
+    }
+
+    header { text-align: center; margin-bottom: 30px; }
+
+    header h1 {
+      margin: 0 0 10px;
+      font-size: clamp(28px, 4vw, 44px);
+      letter-spacing: -0.04em;
+      background: linear-gradient(90deg, #c7d2fe, #a78bfa, #67e8f9);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    header p { margin: 0; color: var(--muted); font-size: 15px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 22px;
+      align-items: start;
+    }
+
+    @media (max-width: 920px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 20px;
+      backdrop-filter: blur(18px);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+    }
+
+    .drop-zone {
+      border: 1.5px dashed rgba(255, 255, 255, 0.26);
+      border-radius: 18px;
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      transition: 0.2s ease;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .drop-zone:hover,
+    .drop-zone.dragover {
+      border-color: var(--primary);
+      background: rgba(109, 93, 252, 0.12);
+    }
+
+    .drop-zone h3 { margin: 0 0 8px; font-size: 17px; }
+    .drop-zone p { margin: 6px 0; color: var(--muted); font-size: 13px; }
+
+    .file-name {
+      margin-top: 14px;
+      font-size: 13px;
+      color: #c7d2fe;
+      word-break: break-all;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    button, .button {
+      appearance: none;
+      border: none;
+      border-radius: 12px;
+      padding: 11px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      color: white;
+      background: var(--primary);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: 0.2s ease;
+    }
+
+    button:hover, .button:hover { background: var(--primary-hover); transform: translateY(-1px); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+    .secondary { background: rgba(255, 255, 255, 0.12); color: var(--text); }
+    .secondary:hover { background: rgba(255, 255, 255, 0.2); }
+
+    .hidden { display: none !important; }
+
+    .status {
+      margin-top: 14px;
+      padding: 11px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .status.success { color: #bbf7d0; background: rgba(34, 197, 94, 0.14); }
+    .status.error { color: #fecaca; background: rgba(239, 68, 68, 0.14); }
+    .status.loading { color: #fde68a; background: rgba(245, 158, 11, 0.14); }
+
+    .compare-wrap {
+      position: relative;
+      width: 100%;
+      min-height: 440px;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background:
+        linear-gradient(45deg, #111827 25%, transparent 25%),
+        linear-gradient(-45deg, #111827 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #111827 75%),
+        linear-gradient(-45deg, transparent 75%, #111827 75%);
+      background-size: 24px 24px;
+      background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+    }
+
+    .compare-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      user-select: none;
+      pointer-events: none;
+    }
+
+    #resultImg {
+      clip-path: inset(0 0 0 50%);
+      transition: clip-path 0.05s linear;
+    }
+
+    #slider {
+      position: absolute;
+      left: 20px;
+      right: 20px;
+      bottom: 18px;
+      width: calc(100% - 40px);
+      z-index: 5;
+      accent-color: var(--primary);
+    }
+
+    .labels {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      right: 14px;
+      display: flex;
+      justify-content: space-between;
+      z-index: 4;
+      pointer-events: none;
+    }
+
+    .labels span {
+      font-size: 12px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.5);
+      color: white;
+      backdrop-filter: blur(8px);
+    }
+
+    .empty-tip {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 14px;
+      z-index: 2;
+      text-align: center;
+      padding: 20px;
+    }
+
+    .meta {
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>ISR-GAN 图像超分辨率重建</h1>
+      <p>上传图片，使用改进 SRGAN 模型生成 4 倍高分辨率结果</p>
+    </header>
+
+    <main class="grid">
+      <section class="card">
+        <div id="dropZone" class="drop-zone">
+          <h3>拖拽图片到这里</h3>
+          <p>或点击选择本地图片</p>
+          <p>支持 JPG / PNG / BMP / WEBP</p>
+          <div id="fileName" class="file-name"></div>
+          <input id="fileInput" type="file" accept="image/*" hidden />
+        </div>
+
+        <div class="actions">
+          <button id="startBtn" disabled>开始超分</button>
+          <button id="resetBtn" class="secondary" disabled>重置</button>
+          <a id="downloadLink" class="button secondary hidden" download="sr_result.png">下载结果</a>
+        </div>
+
+        <div id="status" class="status">等待上传图片</div>
+        <div id="meta" class="meta"></div>
+      </section>
+
+      <section class="card">
+        <div class="compare-wrap" id="compareWrap">
+          <div id="emptyTip" class="empty-tip">上传图片后，这里会显示原图与超分结果对比</div>
+          <img id="originalImg" class="compare-img hidden" alt="原图" />
+          <img id="resultImg" class="compare-img hidden" alt="超分结果" />
+          <div class="labels">
+            <span>原图</span>
+            <span>超分结果</span>
+          </div>
+          <input id="slider" type="range" min="0" max="100" value="50" disabled />
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const API_URL = "/superres_base64";
+
+    const dropZone = document.getElementById("dropZone");
+    const fileInput = document.getElementById("fileInput");
+    const fileName = document.getElementById("fileName");
+    const startBtn = document.getElementById("startBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const downloadLink = document.getElementById("downloadLink");
+    const statusEl = document.getElementById("status");
+    const metaEl = document.getElementById("meta");
+    const originalImg = document.getElementById("originalImg");
+    const resultImg = document.getElementById("resultImg");
+    const slider = document.getElementById("slider");
+    const emptyTip = document.getElementById("emptyTip");
+
+    let selectedFile = null;
+    let originalUrl = null;
+    let resultUrl = null;
+
+    function setStatus(text, type = "") {
+      statusEl.textContent = text;
+      statusEl.className = "status" + (type ? " " + type : "");
+    }
+
+    function resetResult() {
+      resultImg.classList.add("hidden");
+      resultImg.removeAttribute("src");
+      downloadLink.classList.add("hidden");
+      downloadLink.removeAttribute("href");
+      slider.disabled = true;
+      slider.value = 50;
+      resultImg.style.clipPath = "inset(0 0 0 50%)";
+      metaEl.textContent = "";
+      if (resultUrl && resultUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(resultUrl);
+      }
+      resultUrl = null;
+    }
+
+    function loadFile(file) {
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        setStatus("请选择图片文件。", "error");
+        return;
+      }
+
+      selectedFile = file;
+      if (originalUrl) URL.revokeObjectURL(originalUrl);
+      originalUrl = URL.createObjectURL(file);
+      originalImg.src = originalUrl;
+      originalImg.classList.remove("hidden");
+      emptyTip.classList.add("hidden");
+
+      fileName.textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
+      startBtn.disabled = false;
+      resetBtn.disabled = false;
+      resetResult();
+      setStatus("图片已就绪，点击“开始超分”。");
+    }
+
+    dropZone.addEventListener("click", () => fileInput.click());
+
+    fileInput.addEventListener("change", (e) => loadFile(e.target.files[0]));
+
+    dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropZone.classList.add("dragover");
+    });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("dragover");
+      loadFile(e.dataTransfer.files[0]);
+    });
+
+    slider.addEventListener("input", () => {
+      resultImg.style.clipPath = `inset(0 0 0 ${slider.value}%)`;
+    });
+
+    resetBtn.addEventListener("click", () => {
+      selectedFile = null;
+      fileInput.value = "";
+      fileName.textContent = "";
+      originalImg.removeAttribute("src");
+      originalImg.classList.add("hidden");
+      emptyTip.classList.remove("hidden");
+      startBtn.disabled = true;
+      resetBtn.disabled = true;
+      resetResult();
+      setStatus("等待上传图片");
+    });
+
+    startBtn.addEventListener("click", async () => {
+      if (!selectedFile) return;
+
+      startBtn.disabled = true;
+      startBtn.textContent = "处理中...";
+      setStatus("正在调用模型进行超分，请稍候...", "loading");
+
+      try {
+        const formData = new FormData();
+        formData.append("image", selectedFile, selectedFile.name);
+
+        const response = await fetch(API_URL, { method: "POST", body: formData });
+        const text = await response.text();
+
+        if (!response.ok) {
+          let msg = text;
+          try { msg = JSON.parse(text).error || text; } catch {}
+          throw new Error(msg || `HTTP ${response.status}`);
+        }
+
+        const data = JSON.parse(text);
+        const base64 = data.image_base64;
+        if (!base64) throw new Error("接口返回中没有 image_base64 字段");
+
+        resultUrl = "data:image/png;base64," + base64;
+        resultImg.src = resultUrl;
+        resultImg.onload = () => {
+          resultImg.classList.remove("hidden");
+          slider.disabled = false;
+          downloadLink.href = resultUrl;
+          downloadLink.classList.remove("hidden");
+          const inSize = data.input_size ? data.input_size.join("×") : "?";
+          const outSize = data.output_size ? data.output_size.join("×") : "?";
+          metaEl.textContent = `输入 ${inSize} → 输出 ${outSize}`;
+          setStatus("超分完成，拖动滑块对比效果。", "success");
+        };
+      } catch (err) {
+        console.error(err);
+        setStatus(`超分失败：${err.message}`, "error");
+      } finally {
+        startBtn.disabled = false;
+        startBtn.textContent = "开始超分";
+      }
+    });
+  </script>
+</body>
+</html>

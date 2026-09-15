@@ -1,0 +1,26 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+.idea/
+.vscode/
+
+dataset/*
+!dataset/.gitkeep
+processed/*
+!processed/.gitkeep
+logs/*
+!logs/.gitkeep
+backend/uploads/
+backend/results/
+
+checkpoints/*
+!checkpoints/.gitkeep
+!checkpoints/generator_gan_epoch20.pth
+!checkpoints/generator_pretrain.pth
+
+.DS_Store
+Thumbs.db
